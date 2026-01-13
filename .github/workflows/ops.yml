@@ -63,10 +63,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Cloudflare Secrets (Optional, for Deploy feature)
+          # Cloudflare Secrets (Account A: hhwpxh.com)
           CF_API_EMAIL: ${{ secrets.CF_API_EMAIL }}
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          # Cloudflare Secrets (Account B: 555606.xyz)
+          CF_API_EMAIL_555606: ${{ secrets.CF_API_EMAIL_555606 }}
+          CF_API_KEY_555606: ${{ secrets.CF_API_KEY_555606 }}
+          CF_ACCOUNT_ID_555606: ${{ secrets.CF_ACCOUNT_ID_555606 }}
+          CF_ZONE_ID_555606: ${{ secrets.CF_ZONE_ID_555606 }}
         run: |
           python3 maintenance.py --action ${{ inputs.action }} --target "${{ inputs.target }}" --tunnel-id "${{ inputs.tunnel_id }}"

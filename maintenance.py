@@ -14,105 +14,56 @@ GH_TOKEN = os.getenv("GH_TOKEN")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Cloudflare Secrets (For Deployment)
+# Cloudflare Secrets (Account A: hhwpxh.com)
 CF_API_EMAIL = os.getenv("CF_API_EMAIL")
 CF_API_KEY = os.getenv("CF_API_KEY")
 CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
 CF_ZONE_ID = os.getenv("CF_ZONE_ID")
 
+# Cloudflare Secrets (Account B: 555606.xyz)
+CF_API_EMAIL_B = os.getenv("CF_API_EMAIL_555606")
+CF_API_KEY_B = os.getenv("CF_API_KEY_555606")
+CF_ACCOUNT_ID_B = os.getenv("CF_ACCOUNT_ID_555606")
+CF_ZONE_ID_B = os.getenv("CF_ZONE_ID_555606")
+
 def redact_secrets(text):
+    # ... (existing redaction code) ...
     if not text: return text
-    # Redact Token in URL
     import re
     text = re.sub(r'token=[^&\s]+', 'token=***', str(text))
-    # Redact SSH Pass if somehow present
-    if SSH_PASS:
-        text = text.replace(SSH_PASS, '***')
+    if SSH_PASS: text = text.replace(SSH_PASS, '***')
     return text
 
-def send_telegram(message):
-    if not TG_TOKEN or not TG_CHAT_ID:
-        # Don't print the token even in debug
-        print(f"⚠️ Telegram config missing, skipping msg: {redact_secrets(message)}")
-        return
-    
-    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    try:
-        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
-    except Exception as e:
-        print(f"❌ Failed to send Telegram: {redact_secrets(e)}")
+# ... (existing send_telegram, get_agents, get_latest_version, run_ssh) ...
 
-def get_agents():
-    # Attempt 1: Fetch via GitHub API (Preferred if GH_TOKEN is valid for cross-repo)
-    if GH_TOKEN:
-        print("Fetching agents via GitHub API...")
-        api_url = "https://api.github.com/repos/suwei8/GravityBridge-Go/contents/.agent/data/agents.json"
-        headers = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-        try:
-            resp = requests.get(api_url, headers=headers)
-            if resp.status_code == 200:
-                import base64
-                content = base64.b64decode(resp.json()["content"]).decode("utf-8")
-                data = json.loads(content)
-                return data.get("agents", {})
-            elif resp.status_code == 404:
-                print("⚠️ API returned 404. Check Repo/Path permissions.")
-            else:
-                 print(f"⚠️ API Fetch failed: {resp.status_code} {resp.text}")
-        except Exception as e:
-            print(f"⚠️ API Fetch Exception: {redact_secrets(e)}")
-
-    # Attempt 2: Fallback to Raw URL (if provided)
-    if AGENTS_JSON_URL:
-        safe_url = redact_secrets(AGENTS_JSON_URL)
-        print(f"Fetching agents from {safe_url}...")
-        try:
-            resp = requests.get(AGENTS_JSON_URL)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("agents", {})
-        except Exception as e:
-            msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {redact_secrets(e)}"
-            print(msg)
-            send_telegram(msg)
-            return {}
-            
-    print("❌ No valid method to fetch agents.json")
-    return {}
-
-def get_latest_version():
-    url = "https://api.github.com/repos/suwei8/GravityBridge-Go/releases/latest"
-    headers = {"Authorization": f"token {GH_TOKEN}"} if GH_TOKEN else {}
-    try:
-        resp = requests.get(url, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["tag_name"]
-    except Exception as e:
-        print(f"⚠️ Failed to fetch latest version: {e}")
-        return None
-
-def run_ssh(host, cmd):
-    # Assumes cloudflared is installed and configured in ~/.ssh/config or via ProxyCommand
-    ssh_cmd = [
-        "sshpass", "-p", SSH_PASS,
-        "ssh", "-o", "StrictHostKeyChecking=no",
-        "-o", "ConnectTimeout=10",
-        f"{SSH_USER}@{host}",
-        cmd
-    ]
-    return subprocess.run(ssh_cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def get_cloudflare_ctx(hostname):
+    """Select the correct Cloudflare credentials based on domain."""
+    if hostname.endswith("555606.xyz"):
+        return {
+            "email": CF_API_EMAIL_B,
+            "key": CF_API_KEY_B,
+            "zone_id": CF_ZONE_ID_B
+        }
+    else:
+        # Default to Account A (hhwpxh.com) or fallback
+        return {
+            "email": CF_API_EMAIL,
+            "key": CF_API_KEY,
+            "zone_id": CF_ZONE_ID
+        }
 
 def resolve_tunnel_id(hostname):
     """Resolve Cloudflare Tunnel ID for a given hostname CNAME."""
-    if not CF_API_EMAIL or not CF_API_KEY or not CF_ZONE_ID:
-        print("⚠️ Missing Cloudflare Credentials, cannot resolve Tunnel ID automatically.")
+    ctx = get_cloudflare_ctx(hostname)
+    
+    if not ctx["email"] or not ctx["key"] or not ctx["zone_id"]:
+        print(f"⚠️ Missing Cloudflare Credentials for {hostname}, cannot resolve Tunnel ID automatically.")
         return None
 
-    url = f"https://api.cloudflare.com/client/v4/zones/{CF_ZONE_ID}/dns_records?name={hostname}&type=CNAME"
+    url = f"https://api.cloudflare.com/client/v4/zones/{ctx['zone_id']}/dns_records?name={hostname}&type=CNAME"
     headers = {
-        "X-Auth-Email": CF_API_EMAIL,
-        "X-Auth-Key": CF_API_KEY,
+        "X-Auth-Email": ctx["email"],
+        "X-Auth-Key": ctx["key"],
         "Content-Type": "application/json"
     }
     try:
@@ -121,7 +72,6 @@ def resolve_tunnel_id(hostname):
         data = resp.json()
         if data["success"] and data["result"]:
             content = data["result"][0]["content"]
-            # content is like <uuid>.cfargotunnel.com
             import re
             match = re.search(r"([a-f0-9-]+)\.cfargotunnel\.com", content)
             if match:
