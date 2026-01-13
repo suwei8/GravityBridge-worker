@@ -6,13 +6,14 @@ on:
       action:
         description: 'Action to perform'
         required: true
-        default: 'check'
+        default: 'check_and_fix'
         type: choice
         options:
         - check
         - restart
         - deploy
         - debug
+        - check_and_fix
       target:
         description: 'Target Agent Name (Required for deploy, Optional for restart)'
         required: false

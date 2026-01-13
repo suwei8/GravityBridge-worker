@@ -5,6 +5,15 @@ import subprocess
 import argparse
 import time
 import shutil
+import hashlib
+
+def get_file_md5(path):
+    hash_md5 = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(4096), b""):
+            hash_md5.update(chunk)
+    return hash_md5.hexdigest()
+
 
 # Secrets from Environment
 # Secrets from Environment
@@ -35,7 +44,21 @@ def redact_secrets(text):
     if SSH_PASS: text = text.replace(SSH_PASS, '***')
     return text
 
-# ... (existing send_telegram) ...
+def send_telegram(text):
+    if not TG_TOKEN or not TG_CHAT_ID:
+        print(f"⚠️ Telegram (Skip): {text}")
+        return
+    
+    url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TG_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception as e:
+        print(f"⚠️ TG Send failed: {e}")
 
 def get_agents():
     # Attempt 1: Fetch via GitHub API (Preferred if GH_TOKEN is valid for cross-repo)
@@ -56,6 +79,19 @@ def get_agents():
                  print(f"⚠️ API Fetch failed: {resp.status_code} {resp.text}")
         except Exception as e:
             print(f"⚠️ API Fetch Exception: {redact_secrets(e)}")
+
+            print(f"⚠️ API Fetch Exception: {redact_secrets(e)}")
+
+    # Attempt 1.5: Local File (Dev/Manual Mode)
+    local_path = os.path.join(os.path.dirname(__file__), "../GravityBridge-Go/.agent/data/agents.json")
+    if os.path.exists(local_path):
+        print(f"Fetching agents from local file: {local_path}...")
+        try:
+            with open(local_path, "r") as f:
+                data = json.load(f)
+                return data.get("agents", {})
+        except Exception as e:
+            print(f"⚠️ Local file read failed: {e}")
 
     # Attempt 2: Fallback to Raw URL (if provided)
     if AGENTS_JSON_URL:
@@ -144,6 +180,57 @@ def resolve_tunnel_id(hostname):
 
 
 
+def install_dependencies(ssh_host):
+    print(f"📦 Installing dependencies on {ssh_host}...")
+    # xdotool, xclip for automation
+    cmd = f"echo {SSH_PASS} | sudo -S apt-get update && echo {SSH_PASS} | sudo -S apt-get install -y xdotool xclip"
+    ret = run_ssh(ssh_host, cmd)
+    if ret.returncode != 0:
+        print(f"⚠️ Dependency install failed: {ret.stderr}")
+    else:
+        print("✅ Dependencies installed.")
+
+def configure_gemini(ssh_host):
+    print(f"⚙️ Configuring Gemini/MCP on {ssh_host}...")
+    
+    # 1. Prepare Content
+    mcp_config = {
+        "mcpServers": {
+            "gravity_bridge": {
+                "command": "/home/sw/gravity-agent/gravity-agent",
+                "args": [],
+                "disabled": False,
+                "autoApprove": []
+            }
+        }
+    }
+    
+    rules_content = """你在 IDE 中工作，当你完成用户请求的最终答复时，必须遵守以下规则：
+
+1. 立即调用 MCP 工具 `gravity_bridge`，将完整最终答复发送到 Telegram。
+2. 如果内容较长，允许拆分为多次 `gravity_bridge` 调用，优先按段落或符合Telegram阅读的代码块，边界拆分，保持 ``` 代码块结构完整。
+3. MCP 工具 `gravity_bridge`调用成功后，在 IDE 对话中不要重复输出全文，只输出一句： ok
+"""
+
+    # 2. Write Temp Files
+    with open("mcp_config.json.tmp", "w") as f:
+        json.dump(mcp_config, f, indent=4)
+        
+    with open("GEMINI.md.tmp", "w") as f:
+        f.write(rules_content)
+        
+    # 3. Create Remote Dirs
+    run_ssh(ssh_host, "mkdir -p ~/.gemini/antigravity")
+    
+    # 4. SCP Files
+    subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-o", "StrictHostKeyChecking=no", "mcp_config.json.tmp", f"{SSH_USER}@{ssh_host}:~/.gemini/antigravity/mcp_config.json"])
+    subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-o", "StrictHostKeyChecking=no", "GEMINI.md.tmp", f"{SSH_USER}@{ssh_host}:~/.gemini/GEMINI.md"])
+    
+    # 5. Cleanup
+    os.remove("mcp_config.json.tmp")
+    os.remove("GEMINI.md.tmp")
+    print("✅ Gemini Configured.")
+
 def restart_services(agents):
     for name, info in agents.items():
         if isinstance(info, str): continue
@@ -200,6 +287,141 @@ def debug_agent(name, agents):
         print(ret.stdout)
         if ret.stderr:
             print(f"Stderr: {ret.stderr}")
+
+def check_remote_md5(ssh_host, path):
+    cmd = f"md5sum {path} | awk '{{print $1}}'"
+    ret = run_ssh(ssh_host, cmd)
+    if ret.returncode == 0:
+        return ret.stdout.strip()
+    return None
+
+def check_remote_deps(ssh_host):
+    # Returns True if deps exist
+    cmd = "which xdotool && which xclip"
+    ret = run_ssh(ssh_host, cmd)
+    return ret.returncode == 0
+
+def check_remote_config(ssh_host):
+    # Returns True if config files exist
+    cmd = "[ -f ~/.gemini/antigravity/mcp_config.json ] && [ -f ~/.gemini/GEMINI.md ]"
+    ret = run_ssh(ssh_host, cmd)
+    return ret.returncode == 0
+
+def ensure_agent(name, agents, args):
+    info = agents.get(name)
+    if not info:
+        print(f"❌ Agent {name} not found")
+        return
+        
+    ssh_host = info.get("ssh_host")
+    public_url = info.get("url")
+    if not ssh_host:
+        print(f"❌ Missing ssh_host for {name}")
+        return
+
+    print(f"🕵️ Inspecting {name} ({ssh_host})...")
+    needs_restart = False
+
+    # 1. Download Latest Binary (Local Cache)
+    if not os.path.exists("gravity-agent"):
+        # Reuse download logic from deploy_agent
+        # But we need to separate it. For now, calling deploy_agent's download part is hard.
+        # Let's verify if we have it locally first.
+        print("⬇️  Checking/Downloading latest binary locally...")
+        # (Assuming download needs to happen if missing)
+        # Duplicate download logic for safety or refactor?
+        # Let's perform a "soft" download call or check if we can reuse.
+        # Ideally, we should refactor download out. 
+        # For this edit, I will rely on deploy_agent's flow but be smarter?
+        # No, 'ensure' needs to be standalone.
+        # I'll implement a simple download check here.
+        download_binary_only()
+
+    # 2. Version Check (MD5)
+    local_md5 = get_file_md5("gravity-agent")
+    remote_md5 = check_remote_md5(ssh_host, "~/gravity-agent/gravity-agent")
+    
+    if local_md5 != remote_md5:
+        print(f"🔄 Version Mismatch (Local: {local_md5[:8]} vs Remote: {remote_md5[:8] if remote_md5 else 'None'}). Updating Binary...")
+        
+        # STOP SERVICE first to avoid 'Text file busy'
+        run_ssh(ssh_host, "(pkill -9 -x gravity-agent || true)")
+        
+        # Transfer Binary Logic
+        run_ssh(ssh_host, "mkdir -p ~/gravity-agent")
+        subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-o", "StrictHostKeyChecking=no", "gravity-agent", f"{SSH_USER}@{ssh_host}:~/gravity-agent/"])
+        run_ssh(ssh_host, "chmod +x ~/gravity-agent/gravity-agent")
+        needs_restart = True
+        
+        # Also Update Templates/Env if binary changed (often generally good practice)
+        if os.path.exists("templates"):
+            subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-r", "-o", "StrictHostKeyChecking=no", "templates", f"{SSH_USER}@{ssh_host}:~/gravity-agent/"])
+            
+        # Regen Env
+        # We need to resolve tunnel id only if we are creating env
+        # If env exists it might be fine, but if we updated binary we might want to refresh env?
+        # Let's check env existence
+        if run_ssh(ssh_host, "[ -f ~/gravity-agent/.env ]").returncode != 0:
+            print("⚠️ .env missing, generating...")
+            # We need full deploy logic for env generation
+            # Calling full deploy_agent might be easier but it blindly restarts.
+            # Let's call deploy_agent fully if binary mismatch?
+            # User said: "Skip if version is latest".
+            # So if mismatch -> Deploy.
+            print("🚀 Triggering Full Deploy for Version Update...")
+            deploy_agent(name, agents, args) 
+            return # Deploy handles restart
+    else:
+        print(f"✅ Version matches ({local_md5[:8]}). Skipping Binary Update.")
+
+    # 3. Dependency Check
+    if not check_remote_deps(ssh_host):
+        print("📦 Missing Dependencies. Installing...")
+        install_dependencies(ssh_host)
+        needs_restart = True
+    else:
+        print("✅ Dependencies installed.")
+
+    # 4. Config Check
+    if not check_remote_config(ssh_host):
+        print("⚙️  Missing Gemini Config. Configuring...")
+        configure_gemini(ssh_host)
+        needs_restart = True
+    else:
+        print("✅ Gemini Config present.")
+
+    # 5. Restart if needed
+    if needs_restart:
+        print("🔄 Changes detected. Restarting service...")
+        restart_services({name: info})
+    else:
+        print("✅ No changes needed. Service should be running.")
+        # Optional: Check if running, if not restart?
+        # User said "Skip if exists...". If service is dead but latest, should likely start it.
+        if run_ssh(ssh_host, "pgrep -f gravity-agent").returncode != 0:
+             print("⚠️ Service not running. Starting...")
+             restart_services({name: info})
+
+def download_binary_only():
+    if os.path.exists("gravity-agent"): return
+    print("⬇️ Downloading latest binary...")
+    url = "https://api.github.com/repos/suwei8/GravityBridge-Go/releases/latest"
+    headers = {"Authorization": f"token {GH_TOKEN}"} if GH_TOKEN else {}
+    resp = requests.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    asset_url = None
+    for asset in data.get("assets", []):
+         if asset["name"] == "gravity-agent-linux-arm64":
+             asset_url = asset["url"]
+             break
+    if asset_url:
+        headers["Accept"] = "application/octet-stream"
+        with requests.get(asset_url, headers=headers, stream=True) as r:
+            with open("gravity-agent", "wb") as f:
+                shutil.copyfileobj(r.raw, f)
+        os.chmod("gravity-agent", 0o755)
+
 
 def deploy_agent(name, agents, args):
     info = agents.get(name)
@@ -298,6 +520,12 @@ HEADLESS=true
     # 4. Transfer Files
     run_ssh(ssh_host, "mkdir -p ~/gravity-agent")
     
+    # 0. Install Dependencies (Standardized Environment)
+    install_dependencies(ssh_host)
+    
+    # 0.5 Configure Gemini/MCP
+    configure_gemini(ssh_host)
+    
     # Transfer Binary
     print("📤 Transferring binary...")
     subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-o", "StrictHostKeyChecking=no", "gravity-agent", f"{SSH_USER}@{ssh_host}:~/gravity-agent/"])
@@ -352,7 +580,7 @@ def check_deploy(agents):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--action", choices=["check", "restart", "deploy", "debug"], required=True)
+    parser.add_argument("--action", choices=["check", "restart", "deploy", "debug", "check_and_fix"], required=True)
     parser.add_argument("--target", help="Specific agent name to target (required for deploy)")
     parser.add_argument("--tunnel-id", help="Manually specify Tunnel ID for new deployments")
     args = parser.parse_args()
@@ -364,6 +592,13 @@ def main():
             print("❌ --target is required for deploy action")
             return
         deploy_agent(args.target, agents, args)
+    elif args.action == "check_and_fix":
+        if args.target:
+             ensure_agent(args.target, agents, args)
+        else:
+             print("🚀 Batch Ensuring All Agents...")
+             for name in agents:
+                 ensure_agent(name, agents, args)
     elif args.action == "check":
         check_deploy(agents)
     elif args.action == "restart":
