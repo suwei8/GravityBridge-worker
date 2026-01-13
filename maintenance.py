@@ -212,22 +212,44 @@ HEADLESS=true
     
     # 3. Download Latest Binary
     if not os.path.exists("gravity-agent"):
-        print("⬇️ Downloading latest binary...")
-        latest_ver = get_latest_version()
-        if not latest_ver:
-            print("❌ Start failed: Cannot determine version")
-            return
+        print("⬇️ Downloading latest binary via GitHub API...")
+        release_url = "https://api.github.com/repos/suwei8/GravityBridge-Go/releases/latest"
+        headers = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+        
+        try:
+             # 1. Get Release Info
+             resp = requests.get(release_url, headers=headers)
+             resp.raise_for_status()
+             data = resp.json()
+             
+             # 2. Find Asset URL
+             asset_url = None
+             for asset in data.get("assets", []):
+                 if asset["name"] == "gravity-agent-linux-arm64":
+                     asset_url = asset["url"]
+                     break
             
-        down_url = f"https://github.com/suwei8/GravityBridge-Go/releases/download/{latest_ver}/gravity-agent-linux-arm64"
-        print(f"Fetching {down_url}...")
-        resp = requests.get(down_url, stream=True)
-        if resp.status_code == 200:
-            with open("gravity-agent", "wb") as f:
-                shutil.copyfileobj(resp.raw, f)
-            os.chmod("gravity-agent", 0o755)
-        else:
-            print(f"❌ Failed to download binary: {resp.status_code}")
-            return
+             if not asset_url:
+                 print("❌ Start failed: Binary 'gravity-agent-linux-arm64' not found in latest release")
+                 return
+                 
+             # 3. Stream Download Asset
+             print(f"Fetching asset from {asset_url}...")
+             headers["Accept"] = "application/octet-stream"
+             resp_dl = requests.get(asset_url, headers=headers, stream=True)
+             
+             if resp_dl.status_code == 200:
+                 with open("gravity-agent", "wb") as f:
+                     shutil.copyfileobj(resp_dl.raw, f)
+                 os.chmod("gravity-agent", 0o755)
+                 print("✅ Download successful.")
+             else:
+                 print(f"❌ Failed to download binary asset: {resp_dl.status_code}")
+                 return
+
+        except Exception as e:
+             print(f"❌ Download Exception: {e}")
+             return
 
     # 4. Transfer Files
     run_ssh(ssh_host, "mkdir -p ~/gravity-agent")
