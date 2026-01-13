@@ -165,6 +165,36 @@ def restart_services(agents):
             print(f"   Stdout: {ret.stdout}")
             print(f"   Stderr: {ret.stderr}")
 
+def debug_agent(name, agents):
+    info = agents.get(name)
+    if not info:
+        print(f"❌ Agent {name} not found")
+        return
+        
+    ssh_host = info.get("ssh_host")
+    if not ssh_host:
+        print(f"❌ No ssh_host for {name}")
+        return
+
+    print(f"🔍 Debugging {name} ({ssh_host})...")
+    
+    commands = [
+        ("Process Status", "pgrep -a gravity-agent || echo 'Not Running'"),
+        ("File Permissions", "ls -la ~/gravity-agent/"),
+        ("Agent Log (Last 50 lines)", "tail -n 50 ~/gravity-agent/agent.log || echo 'No Log'"),
+        ("Env File Check", "cat ~/gravity-agent/.env || echo 'No Env'"),
+        ("Binary Test (Version/Help)", "~/gravity-agent/gravity-agent --help || echo 'Binary Exec Failed'"),
+        ("Architecture Check", "uname -a")
+    ]
+
+    for title, cmd in commands:
+        print(f"\n--- {title} ---")
+        ret = run_ssh(ssh_host, cmd)
+        print(f"Exit: {ret.returncode}")
+        print(ret.stdout)
+        if ret.stderr:
+            print(f"Stderr: {ret.stderr}")
+
 def deploy_agent(name, agents, args):
     info = agents.get(name)
     if not info:
@@ -314,7 +344,7 @@ def check_deploy(agents):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--action", choices=["check", "restart", "deploy"], required=True)
+    parser.add_argument("--action", choices=["check", "restart", "deploy", "debug"], required=True)
     parser.add_argument("--target", help="Specific agent name to target (required for deploy)")
     parser.add_argument("--tunnel-id", help="Manually specify Tunnel ID for new deployments")
     args = parser.parse_args()
@@ -332,6 +362,12 @@ def main():
         if args.target:
             agents = {k:v for k,v in agents.items() if k == args.target}
         restart_services(agents)
+    elif args.action == "debug":
+        if not args.target:
+            print("❌ --target is required for debug action")
+            return
+        debug_agent(args.target, agents)
+
 
 if __name__ == "__main__":
     main()

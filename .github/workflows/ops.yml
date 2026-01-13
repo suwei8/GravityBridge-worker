@@ -12,6 +12,7 @@ on:
         - check
         - restart
         - deploy
+        - debug
       target:
         description: 'Target Agent Name (Required for deploy, Optional for restart)'
         required: false
