@@ -142,18 +142,7 @@ def resolve_tunnel_id(hostname):
         print(f"❌ Failed to resolve Tunnel ID for {hostname}: {e}")
     return None
 
-def ensure_dependencies(ssh_host):
-    print("Checking for xvfb...")
-    ret = run_ssh(ssh_host, "which xvfb-run")
-    if ret.returncode != 0:
-        print("🔧 Installing xvfb (This may take a minute)...")
-        # Use SSH_PASS for sudo. BE CAREFUL with logs.
-        install_cmd = f"echo '{SSH_PASS}' | sudo -S DEBIAN_FRONTEND=noninteractive apt-get update && echo '{SSH_PASS}' | sudo -S DEBIAN_FRONTEND=noninteractive apt-get install -y xvfb"
-        ret = run_ssh(ssh_host, install_cmd)
-        if ret.returncode != 0:
-            print(f"❌ Failed to install xvfb: {ret.stderr}")
-        else:
-            print("✅ xvfb installed.")
+
 
 def restart_services(agents):
     for name, info in agents.items():
@@ -168,8 +157,10 @@ def restart_services(agents):
 
         # 2. Restart (Ignore pkill failure if process doesn't exist)
         # Use -x (exact match) to avoid killing the SSH command itself which contains "gravity-agent"
-        # Wrap in xvfb-run for headless vision support
-        cmd = "(pkill -9 -x gravity-agent || true); xvfb-run -a -s '-screen 0 1280x1024x24' nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
+        # Target REAL Desktop (User confirmed desktop environment exists). Usually :0 or :1.
+        # We try :10.0 (SSH X11) or :0 (Local). Since it's a desktop server, likely :0.
+        # We also add xhost + just in case permissions are localized
+        cmd = "(pkill -9 -x gravity-agent || true); export DISPLAY=:0; xhost +local: >/dev/null 2>&1 || true; nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
         ret = run_ssh(ssh_host, cmd)
         
         if ret.returncode == 0:
@@ -197,9 +188,11 @@ def debug_agent(name, agents):
         ("File Permissions", "ls -la ~/gravity-agent/"),
         ("Agent Log (Last 200 lines)", "tail -n 200 ~/gravity-agent/agent.log || echo 'No Log'"),
         ("Env File Check", "cat ~/gravity-agent/.env || echo 'No Env'"),
+        ("Env File Check", "cat ~/gravity-agent/.env || echo 'No Env'"),
         ("Binary Test (Version/Help)", "~/gravity-agent/gravity-agent --help || echo 'Binary Exec Failed'"),
         ("Architecture Check", "uname -a"),
-        ("Xvfb Check", "which xvfb-run || echo 'xvfb-run not found'")
+        ("Display Check", "ls -la /tmp/.X11-unix/ || echo 'No X11 Sockets'"),
+        ("Active Users", "w || echo 'w failed'")
     ]
 
     for title, cmd in commands:
@@ -322,10 +315,9 @@ HEADLESS=true
     print("📤 Transferring config...")
     subprocess.run(["sshpass", "-p", SSH_PASS, "scp", "-o", "StrictHostKeyChecking=no", ".env.tmp", f"{SSH_USER}@{ssh_host}:~/gravity-agent/.env"])
     
-    # 5. Ensure Dependencies (Xvfb)
-    ensure_dependencies(ssh_host)
 
-    # 6. Restart
+    
+    # 5. Restart
     restart_services({name: info})
     
     print(f"✅ Deployment of {name} Complete.")
