@@ -35,7 +35,68 @@ def redact_secrets(text):
     if SSH_PASS: text = text.replace(SSH_PASS, '***')
     return text
 
-# ... (existing send_telegram, get_agents, get_latest_version, run_ssh) ...
+# ... (existing send_telegram) ...
+
+def get_agents():
+    # Attempt 1: Fetch via GitHub API (Preferred if GH_TOKEN is valid for cross-repo)
+    if GH_TOKEN:
+        print("Fetching agents via GitHub API...")
+        api_url = "https://api.github.com/repos/suwei8/GravityBridge-Go/contents/.agent/data/agents.json"
+        headers = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+        try:
+            resp = requests.get(api_url, headers=headers)
+            if resp.status_code == 200:
+                import base64
+                content = base64.b64decode(resp.json()["content"]).decode("utf-8")
+                data = json.loads(content)
+                return data.get("agents", {})
+            elif resp.status_code == 404:
+                print("⚠️ API returned 404. Check Repo/Path permissions.")
+            else:
+                 print(f"⚠️ API Fetch failed: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"⚠️ API Fetch Exception: {redact_secrets(e)}")
+
+    # Attempt 2: Fallback to Raw URL (if provided)
+    if AGENTS_JSON_URL:
+        safe_url = redact_secrets(AGENTS_JSON_URL)
+        print(f"Fetching agents from {safe_url}...")
+        try:
+            resp = requests.get(AGENTS_JSON_URL)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("agents", {})
+        except Exception as e:
+            msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {redact_secrets(e)}"
+            print(msg)
+            send_telegram(msg)
+            return {}
+            
+    print("❌ No valid method to fetch agents.json")
+    return {}
+
+def get_latest_version():
+    url = "https://api.github.com/repos/suwei8/GravityBridge-Go/releases/latest"
+    headers = {"Authorization": f"token {GH_TOKEN}"} if GH_TOKEN else {}
+    try:
+        resp = requests.get(url, headers=headers)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["tag_name"]
+    except Exception as e:
+        print(f"⚠️ Failed to fetch latest version: {e}")
+        return None
+
+def run_ssh(host, cmd):
+    # Assumes cloudflared is installed and configured in ~/.ssh/config or via ProxyCommand
+    ssh_cmd = [
+        "sshpass", "-p", SSH_PASS,
+        "ssh", "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=10",
+        f"{SSH_USER}@{host}",
+        cmd
+    ]
+    return subprocess.run(ssh_cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 def get_cloudflare_ctx(hostname):
     """Select the correct Cloudflare credentials based on domain."""
