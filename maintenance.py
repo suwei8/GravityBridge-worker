@@ -143,23 +143,25 @@ def deploy_agent(name, agents, args):
     print(f"🚀 Deploying {name} to {ssh_host}...")
 
     # 1. Resolve Data
-    vpc_host = ssh_host # Use SSH host for Tunnel ID resolution as per user request
+    vpc_host = ssh_host # Source of Truth for Tunnel ID
     vless_host = public_url.replace("https://", "").replace("http://", "")
     
-    tunnel_id = args.tunnel_id
-    if not tunnel_id:
-        print(f"🔍 Auto-resolving Tunnel ID via DNS for SSH Host: {vpc_host}...")
-        tunnel_id = resolve_tunnel_id(vpc_host)
-        # Fallback to public URL only if SSH host fails (unlikely if SSH works)
-        if not tunnel_id:
-             print(f"🔍 Retry resolving via Public URL: {vless_host}...")
-             tunnel_id = resolve_tunnel_id(vless_host)
-    else:
-        print(f"ℹ️ Using provided Tunnel ID: {tunnel_id}")
+    # Strict Automation: Resolve or Fail
+    print(f"🔍 Resolving Tunnel ID via DNS for SSH Host: {vpc_host}...")
+    tunnel_id = resolve_tunnel_id(vpc_host)
     
     if not tunnel_id:
-        print(f"⚠️ Tunnel ID not resolved and not provided.")
-        tunnel_id = "MANUAL_CONFIG_REQUIRED"
+        # Check if user provided an override (still useful for debugging but not relied upon)
+        if args.tunnel_id:
+            print(f"⚠️ DNS Resolution failed, but using manual override: {args.tunnel_id}")
+            tunnel_id = args.tunnel_id
+        else:
+            msg = f"❌ **Deployment Failed**: Could not resolve Tunnel ID for `{vpc_host}`.\nEnsure the server has a Cloudflare Tunnel running and the DNS record exists."
+            print(msg)
+            send_telegram(msg)
+            return
+
+    print(f"✅ Resolved Tunnel ID: {tunnel_id}")
     
     # 2. Prepare Environment File
     env_content = f"""AGENT_NAME={name}
