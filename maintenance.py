@@ -181,10 +181,11 @@ def debug_agent(name, agents):
     commands = [
         ("Process Status", "pgrep -a gravity-agent || echo 'Not Running'"),
         ("File Permissions", "ls -la ~/gravity-agent/"),
-        ("Agent Log (Last 50 lines)", "tail -n 50 ~/gravity-agent/agent.log || echo 'No Log'"),
+        ("Agent Log (Last 200 lines)", "tail -n 200 ~/gravity-agent/agent.log || echo 'No Log'"),
         ("Env File Check", "cat ~/gravity-agent/.env || echo 'No Env'"),
         ("Binary Test (Version/Help)", "~/gravity-agent/gravity-agent --help || echo 'Binary Exec Failed'"),
-        ("Architecture Check", "uname -a")
+        ("Architecture Check", "uname -a"),
+        ("Xvfb Check", "which xvfb-run || echo 'xvfb-run not found'")
     ]
 
     for title, cmd in commands:
