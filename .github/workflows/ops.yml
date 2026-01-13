@@ -1,3 +1,5 @@
+name: GravityBridge Maintenance
+
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +14,10 @@ on:
         - deploy
       target:
         description: 'Target Agent Name (Required for deploy, Optional for restart)'
+        required: false
+        type: string
+      tunnel_id:
+        description: 'Tunnel ID (UUID) - Required for new deployments if DNS not set'
         required: false
         type: string
 
@@ -63,4 +69,4 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
         run: |
-          python3 maintenance.py --action ${{ inputs.action }} --target "${{ inputs.target }}"
+          python3 maintenance.py --action ${{ inputs.action }} --target "${{ inputs.target }}" --tunnel-id "${{ inputs.tunnel_id }}"
