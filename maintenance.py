@@ -149,13 +149,20 @@ def restart_services(agents):
         if not ssh_host: continue
 
         print(f"🔄 Restarting {name}...")
-        cmd = "pkill -9 -f gravity-agent; nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
+        
+        # 1. Ensure binary is executable (SCP might lose permissions)
+        run_ssh(ssh_host, "chmod +x ~/gravity-agent/gravity-agent")
+
+        # 2. Restart (Ignore pkill failure if process doesn't exist)
+        cmd = "(pkill -9 -f gravity-agent || true); nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
         ret = run_ssh(ssh_host, cmd)
         
         if ret.returncode == 0:
             print(f"✅ {name}: Restart Triggered")
         else:
-            print(f"❌ {name}: Restart Failed: {ret.stderr}")
+            print(f"❌ {name}: Restart Failed. Exit Code: {ret.returncode}")
+            print(f"   Stdout: {ret.stdout}")
+            print(f"   Stderr: {ret.stderr}")
 
 def deploy_agent(name, agents, args):
     info = agents.get(name)
