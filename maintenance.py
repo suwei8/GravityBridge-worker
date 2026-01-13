@@ -10,7 +10,7 @@ import shutil
 AGENTS_JSON_URL = os.getenv("AGENTS_JSON_URL")
 SSH_USER = os.getenv("SSH_USERNAME", "sw")
 SSH_PASS = os.getenv("SSH_PASSWORD")
-GH_TOKEN = os.getenv("GITHUB_TOKEN")
+GH_TOKEN = os.getenv("GH_TOKEN")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
