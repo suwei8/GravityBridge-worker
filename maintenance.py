@@ -43,19 +43,42 @@ def send_telegram(message):
         print(f"❌ Failed to send Telegram: {redact_secrets(e)}")
 
 def get_agents():
-    # Safe log
-    safe_url = redact_secrets(AGENTS_JSON_URL)
-    print(f"Fetching agents from {safe_url}...")
-    try:
-        resp = requests.get(AGENTS_JSON_URL)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("agents", {})
-    except Exception as e:
-        msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {redact_secrets(e)}"
-        print(msg)
-        send_telegram(msg)
-        return {}
+    # Attempt 1: Fetch via GitHub API (Preferred if GH_TOKEN is valid for cross-repo)
+    if GH_TOKEN:
+        print("Fetching agents via GitHub API...")
+        api_url = "https://api.github.com/repos/suwei8/GravityBridge-Go/contents/.agent/data/agents.json"
+        headers = {"Authorization": f"token {GH_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+        try:
+            resp = requests.get(api_url, headers=headers)
+            if resp.status_code == 200:
+                import base64
+                content = base64.b64decode(resp.json()["content"]).decode("utf-8")
+                data = json.loads(content)
+                return data.get("agents", {})
+            elif resp.status_code == 404:
+                print("⚠️ API returned 404. Check Repo/Path permissions.")
+            else:
+                 print(f"⚠️ API Fetch failed: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"⚠️ API Fetch Exception: {redact_secrets(e)}")
+
+    # Attempt 2: Fallback to Raw URL (if provided)
+    if AGENTS_JSON_URL:
+        safe_url = redact_secrets(AGENTS_JSON_URL)
+        print(f"Fetching agents from {safe_url}...")
+        try:
+            resp = requests.get(AGENTS_JSON_URL)
+            resp.raise_for_status()
+            data = resp.json()
+            return data.get("agents", {})
+        except Exception as e:
+            msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {redact_secrets(e)}"
+            print(msg)
+            send_telegram(msg)
+            return {}
+            
+    print("❌ No valid method to fetch agents.json")
+    return {}
 
 def get_latest_version():
     url = "https://api.github.com/repos/suwei8/GravityBridge-Go/releases/latest"
