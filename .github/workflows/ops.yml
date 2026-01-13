@@ -1,5 +1,3 @@
-name: GravityBridge Maintenance
-
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +9,11 @@ on:
         options:
         - check
         - restart
+        - deploy
+      target:
+        description: 'Target Agent Name (Required for deploy, Optional for restart)'
+        required: false
+        type: string
 
 jobs:
   maintenance:
@@ -44,8 +47,6 @@ jobs:
           echo "    User sw" >> ~/.ssh/config
           echo "    StrictHostKeyChecking no" >> ~/.ssh/config
           # Using cloudflared access ssh. 
-          # NOTE: Requires Cloudflare Service Token or Access bypass for automated flows.
-          # Here we assume --hostname %h works if no Auth required or if CF_ACCESS_CLIENT_ID/SECRET provided via ENV
           echo "    ProxyCommand cloudflared access ssh --hostname %h" >> ~/.ssh/config
 
       - name: Run Maintenance Script
@@ -54,5 +55,12 @@ jobs:
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          # Cloudflare Secrets (Optional, for Deploy feature)
+          CF_API_EMAIL: ${{ secrets.CF_API_EMAIL }}
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
         run: |
-          python3 maintenance.py --action ${{ inputs.action }}
+          python3 maintenance.py --action ${{ inputs.action }} --target "${{ inputs.target }}"
