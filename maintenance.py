@@ -7,24 +7,25 @@ import time
 import shutil
 
 # Secrets from Environment
-AGENTS_JSON_URL = os.getenv("AGENTS_JSON_URL")
-SSH_USER = os.getenv("SSH_USERNAME", "sw")
-SSH_PASS = os.getenv("SSH_PASSWORD")
-GH_TOKEN = os.getenv("GH_TOKEN")
-TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+# Secrets from Environment
+AGENTS_JSON_URL = os.getenv("AGENTS_JSON_URL", "").strip()
+SSH_USER = os.getenv("SSH_USERNAME", "sw").strip()
+SSH_PASS = os.getenv("SSH_PASSWORD", "").strip()
+GH_TOKEN = os.getenv("GH_TOKEN", "").strip()
+TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
 # Cloudflare Secrets (Account A: hhwpxh.com)
-CF_API_EMAIL = os.getenv("CF_API_EMAIL")
-CF_API_KEY = os.getenv("CF_API_KEY")
-CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID")
-CF_ZONE_ID = os.getenv("CF_ZONE_ID")
+CF_API_EMAIL = os.getenv("CF_API_EMAIL", "").strip()
+CF_API_KEY = os.getenv("CF_API_KEY", "").strip()
+CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID", "").strip()
+CF_ZONE_ID = os.getenv("CF_ZONE_ID", "").strip()
 
 # Cloudflare Secrets (Account B: 555606.xyz)
-CF_API_EMAIL_B = os.getenv("CF_API_EMAIL_555606")
-CF_API_KEY_B = os.getenv("CF_API_KEY_555606")
-CF_ACCOUNT_ID_B = os.getenv("CF_ACCOUNT_ID_555606")
-CF_ZONE_ID_B = os.getenv("CF_ZONE_ID_555606")
+CF_API_EMAIL_B = os.getenv("CF_API_EMAIL_555606", "").strip()
+CF_API_KEY_B = os.getenv("CF_API_KEY_555606", "").strip()
+CF_ACCOUNT_ID_B = os.getenv("CF_ACCOUNT_ID_555606", "").strip()
+CF_ZONE_ID_B = os.getenv("CF_ZONE_ID_555606", "").strip()
 
 def redact_secrets(text):
     # ... (existing redaction code) ...
