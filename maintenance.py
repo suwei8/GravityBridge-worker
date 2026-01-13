@@ -143,12 +143,17 @@ def deploy_agent(name, agents, args):
     print(f"🚀 Deploying {name} to {ssh_host}...")
 
     # 1. Resolve Data
+    vpc_host = ssh_host # Use SSH host for Tunnel ID resolution as per user request
     vless_host = public_url.replace("https://", "").replace("http://", "")
     
     tunnel_id = args.tunnel_id
     if not tunnel_id:
-        print(f"🔍 Auto-resolving Tunnel ID via DNS for {vless_host}...")
-        tunnel_id = resolve_tunnel_id(vless_host)
+        print(f"🔍 Auto-resolving Tunnel ID via DNS for SSH Host: {vpc_host}...")
+        tunnel_id = resolve_tunnel_id(vpc_host)
+        # Fallback to public URL only if SSH host fails (unlikely if SSH works)
+        if not tunnel_id:
+             print(f"🔍 Retry resolving via Public URL: {vless_host}...")
+             tunnel_id = resolve_tunnel_id(vless_host)
     else:
         print(f"ℹ️ Using provided Tunnel ID: {tunnel_id}")
     
