@@ -13,27 +13,40 @@ GH_TOKEN = os.getenv("GITHUB_TOKEN")
 TG_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TG_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+def redact_secrets(text):
+    if not text: return text
+    # Redact Token in URL
+    import re
+    text = re.sub(r'token=[^&\s]+', 'token=***', str(text))
+    # Redact SSH Pass if somehow present
+    if SSH_PASS:
+        text = text.replace(SSH_PASS, '***')
+    return text
+
 def send_telegram(message):
     if not TG_TOKEN or not TG_CHAT_ID:
-        print(f"⚠️ Telegram config missing, skipping msg: {message}")
+        # Don't print the token even in debug
+        print(f"⚠️ Telegram config missing, skipping msg: {redact_secrets(message)}")
         return
     
     url = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
-    payload = {"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "Markdown"}
+    # Don't log the payload content to avoid leaking sensitive alert details too broadly in CI logs
     try:
-        requests.post(url, json=payload, timeout=5)
+        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
     except Exception as e:
-        print(f"❌ Failed to send Telegram: {e}")
+        print(f"❌ Failed to send Telegram: {redact_secrets(e)}")
 
 def get_agents():
-    print(f"Fetching agents from {AGENTS_JSON_URL}...")
+    # Safe log
+    safe_url = redact_secrets(AGENTS_JSON_URL)
+    print(f"Fetching agents from {safe_url}...")
     try:
         resp = requests.get(AGENTS_JSON_URL)
         resp.raise_for_status()
         data = resp.json()
         return data.get("agents", {})
     except Exception as e:
-        msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {e}"
+        msg = f"❌ **GravityBridge Alert**\nFailed to fetch `agents.json`: {redact_secrets(e)}"
         print(msg)
         send_telegram(msg)
         return {}
