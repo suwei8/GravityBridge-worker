@@ -154,7 +154,8 @@ def restart_services(agents):
         run_ssh(ssh_host, "chmod +x ~/gravity-agent/gravity-agent")
 
         # 2. Restart (Ignore pkill failure if process doesn't exist)
-        cmd = "(pkill -9 -f gravity-agent || true); nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
+        # Use -x (exact match) to avoid killing the SSH command itself which contains "gravity-agent"
+        cmd = "(pkill -9 -x gravity-agent || true); nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
         ret = run_ssh(ssh_host, cmd)
         
         if ret.returncode == 0:
