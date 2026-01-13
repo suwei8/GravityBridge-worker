@@ -157,10 +157,8 @@ def restart_services(agents):
 
         # 2. Restart (Ignore pkill failure if process doesn't exist)
         # Use -x (exact match) to avoid killing the SSH command itself which contains "gravity-agent"
-        # Target REAL Desktop (User confirmed desktop environment exists). Usually :0 or :1.
-        # We try :10.0 (SSH X11) or :0 (Local). Since it's a desktop server, likely :0.
-        # We also add xhost + just in case permissions are localized
-        cmd = "(pkill -9 -x gravity-agent || true); export DISPLAY=:0; xhost +local: >/dev/null 2>&1 || true; nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
+        # Target REAL Desktop (Found X10 socket in debug run).
+        cmd = "(pkill -9 -x gravity-agent || true); export DISPLAY=:10; xhost +local: >/dev/null 2>&1 || true; nohup ~/gravity-agent/gravity-agent > ~/gravity-agent/agent.log 2>&1 &"
         ret = run_ssh(ssh_host, cmd)
         
         if ret.returncode == 0:
